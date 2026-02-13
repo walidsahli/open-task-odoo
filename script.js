@@ -1,3 +1,31 @@
+const DEFAULT_CONFIG = {
+  branchSelector: 'a[href*="odoo-dev"][title^="odoo-dev"]',
+  pullRequestBodySelector: '.js-command-palette-pull-body',
+};
+
+const loadConfig = (callback) => {
+  try {
+    if (!chrome || !chrome.storage || !chrome.storage.sync) {
+      callback(DEFAULT_CONFIG);
+      return;
+    }
+  } catch (e) {
+    // `chrome` not available (e.g. running directly in page) – use defaults
+    callback(DEFAULT_CONFIG);
+    return;
+  }
+
+  chrome.storage.sync.get(DEFAULT_CONFIG, (items) => {
+    // In case of any error, silently fall back to defaults
+    if (chrome.runtime && chrome.runtime.lastError) {
+      console.warn("Odoo github extension: using default config", chrome.runtime.lastError);
+      callback(DEFAULT_CONFIG);
+      return;
+    }
+    callback(items || DEFAULT_CONFIG);
+  });
+};
+
 const extractId = (text, prefix) => {
   const match = text?.match(new RegExp(`${prefix}-(\\d+)`, "i"));
   return match ? match[1] : null;
@@ -6,6 +34,78 @@ const extractId = (text, prefix) => {
 const findId = (text, prefixes) => {
   return prefixes.map(prefix => extractId(text, prefix)).find(Boolean)
 }
+
+const linkifyIdsInNode = (root, prefixes) => {
+  if (!root) return;
+
+  const walker = document.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.match(/(opw-\d+|task-\d+)/i)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        // Avoid code blocks / existing links / our own links
+        if (["CODE", "PRE", "A"].includes(parent.tagName)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        if (parent.closest(".odoo-task-linkified")) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+    false
+  );
+
+  const regex = /(opw-(\d+)|task-(\d+))/gi;
+
+  const toProcess = [];
+  let current;
+  while ((current = walker.nextNode())) {
+    toProcess.push(current);
+  }
+
+  toProcess.forEach((textNode) => {
+    const original = textNode.nodeValue;
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(original))) {
+      const full = match[0]; // e.g. "opw-1234"
+      const rawId = match[2] || match[3]; // digits
+
+      if (match.index > lastIndex) {
+        frag.appendChild(document.createTextNode(original.slice(lastIndex, match.index)));
+      }
+
+      const link = document.createElement("a");
+      link.textContent = full;
+      link.href = `https://www.odoo.com/odoo/all-tasks/${rawId}`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.classList.add("odoo-task-linkified");
+      Object.assign(link.style, {
+        color: "#58a6ff",
+        textDecoration: "underline",
+        cursor: "pointer",
+      });
+
+      frag.appendChild(link);
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < original.length) {
+      frag.appendChild(document.createTextNode(original.slice(lastIndex)));
+    }
+
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+};
 
 const createButtons = (ticketId, runbotTicketId, branchName) => {
   const showTaskButton = ticketId || runbotTicketId;
@@ -77,14 +177,21 @@ const createButtons = (ticketId, runbotTicketId, branchName) => {
   return buttons;
 };
 
-const run = () => {
+const run = (config) => {
   try {
-    const [branchElement, stickyBranchElement] = document.querySelectorAll('a[href*="odoo-dev"][title^="odoo-dev"]');
-    
-    const pullRequestBody = document.querySelector('.js-command-palette-pull-body')?.textContent;
+    const { branchSelector, pullRequestBodySelector } = config || DEFAULT_CONFIG;
+
+    const [branchElement, stickyBranchElement] = document.querySelectorAll(branchSelector);
+    const pullRequestBodyElement = document.querySelector(pullRequestBodySelector);
+    const pullRequestBody = pullRequestBodyElement?.textContent;
     const branchTitle = (branchElement?.getAttribute("href") || stickyBranchElement?.getAttribute("href"))?.split("/").pop();
     const ticketId = findId(branchTitle, ["opw", "task"]) || findId(pullRequestBody, ["opw", "task"]);
     const runbotTicketId = findId(branchTitle, ["runbot"]) || findId(pullRequestBody, ["runbot"]);
+
+    // Make opw-XXX / task-XXX in the PR body clickable (handles multiple IDs)
+    if (pullRequestBodyElement) {
+      linkifyIdsInNode(pullRequestBodyElement, ["opw", "task"]);
+    }
 
     // Add buttons to main header
     if (branchElement && !branchElement.closest("div").querySelector(".odoo-task-button, .odoo-branch-button")) {
@@ -105,5 +212,5 @@ const run = () => {
 }
 
 window.addEventListener('load', () => {
-  run();
+  loadConfig(run);
 });
