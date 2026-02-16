@@ -1,5 +1,5 @@
 const DEFAULT_CONFIG = {
-  branchSelector: 'a[href*="odoo-dev"][title^="odoo-dev"]',
+  branchSelector: 'a[href*="odoo-dev"]',
   pullRequestBodySelector: '.js-command-palette-pull-body',
 };
 
