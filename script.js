@@ -107,7 +107,15 @@ const linkifyIdsInNode = (root, prefixes) => {
   });
 };
 
-const createButtons = (ticketId, runbotTicketId, branchName) => {
+const getRunbotBatchUrl = () => {
+  const link = document.querySelector('a[href*="runbot.odoo.com/runbot/batch/"]');
+  if (!link) return null;
+  const href = link.getAttribute("href");
+  const match = href.match(/(https:\/\/runbot\.odoo\.com\/runbot\/batch\/\d+)/);
+  return match ? match[1] : null;
+};
+
+const createButtons = (ticketId, runbotTicketId, branchName, runbotBatchUrl) => {
   const showTaskButton = ticketId || runbotTicketId;
   const buttons = [];
 
@@ -174,6 +182,32 @@ const createButtons = (ticketId, runbotTicketId, branchName) => {
   });
   buttons.push(odooCopyButton);
 
+  if (runbotBatchUrl) {
+    const runbotButton = document.createElement("a");
+    runbotButton.className = "odoo-runbot-button";
+    runbotButton.textContent = "🤖 Runbot";
+    runbotButton.title = "Open Runbot batch";
+    runbotButton.href = runbotBatchUrl;
+    runbotButton.target = "_blank";
+    runbotButton.rel = "noopener noreferrer";
+    Object.assign(runbotButton.style, {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: "8px",
+      padding: "4px 10px",
+      fontSize: "12px",
+      fontWeight: "500",
+      textDecoration: "none",
+      color: "#ffffff",
+      background: "#1f6feb",
+      border: "1px solid rgba(240,246,252,0.1)",
+      borderRadius: "6px",
+      cursor: "pointer",
+    });
+    buttons.push(runbotButton);
+  }
+
   return buttons;
 };
 
@@ -187,6 +221,7 @@ const run = (config) => {
     const branchTitle = (branchElement?.getAttribute("href") || stickyBranchElement?.getAttribute("href"))?.split("/").pop();
     const ticketId = findId(branchTitle, ["opw", "task"]) || findId(pullRequestBody, ["opw", "task"]);
     const runbotTicketId = findId(branchTitle, ["runbot"]) || findId(pullRequestBody, ["runbot"]);
+    const runbotBatchUrl = getRunbotBatchUrl();
 
     // Make opw-XXX / task-XXX in the PR body clickable (handles multiple IDs)
     if (pullRequestBodyElement) {
@@ -196,14 +231,14 @@ const run = (config) => {
     // Add buttons to main header
     if (branchElement && !branchElement.closest("div").querySelector(".odoo-task-button, .odoo-branch-button")) {
       const container = branchElement;
-      const buttons = createButtons(ticketId, runbotTicketId, branchTitle);
+      const buttons = createButtons(ticketId, runbotTicketId, branchTitle, runbotBatchUrl);
       buttons.forEach(button => container.closest("div").lastElementChild.after(button));
     }
 
     // Add buttons to sticky header
     if (stickyBranchElement && !stickyBranchElement.closest("div").querySelector(".odoo-task-button, .odoo-branch-button")) {
       const stickyContainer = stickyBranchElement;
-      const buttons = createButtons(ticketId, runbotTicketId, branchTitle);
+      const buttons = createButtons(ticketId, runbotTicketId, branchTitle, runbotBatchUrl);
       buttons.forEach(button => stickyContainer.closest("div").lastElementChild.after(button));
     }
   } catch (error) {
