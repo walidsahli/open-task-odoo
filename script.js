@@ -246,6 +246,17 @@ const run = (config) => {
   }
 }
 
-window.addEventListener('load', () => {
-  loadConfig(run);
+loadConfig((config) => {
+  // GitHub re-renders the PR header after load (dropping our buttons) and navigates
+  // without full page reloads, so run again whenever the DOM changes.
+  let timer = null;
+  const schedule = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      run(config);
+    }, 200);
+  };
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
+  run(config);
 });
